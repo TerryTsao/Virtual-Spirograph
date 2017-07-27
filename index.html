@@ -9,13 +9,210 @@
             border: 1px solid black
         }
     </style>
+    
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.2.1/jquery.min.js"></script>
 
-    <script src="fabric.js"></script>
+    <script src='spectrum.js'></script>
+    <link rel='stylesheet' href='spectrum.css' />
+
+    <script type="text/javascript" src="paper.js"></script>
+    <script type="text/paperscript" canvas="canvas">
+        var img = new Raster('img');
+        img.position = view.center;
+        img.scale(1.2);
+        img.translate(new Point(0, -50));
+
+        var color = 'white';
+        var width = 2;
+        var delta = 0.05;
+
+        var ORIGIN = new Point(400, 300);
+        var oldAngle = 0;
+        var newAngle = 0;
+        
+        // frame
+        var frame = new Shape.Circle(ORIGIN, 200);
+        frame.strokeColor = 'black';
+        frame.fillColor = '#D8C4AC';
+        frame.fillColor.alpha = 0.7;
+
+        // wafer
+        var wafer = new Shape.Circle(new Point(400, 450), 50);
+        wafer.strokeColor = 'red';
+        wafer.fillColor = 'gray';
+        wafer.fillColor.alpha = 0.5;
+
+        // penPoint
+        var penPoint = new Point(425,425);
+        var penHole = new Path.Circle(penPoint, 2);
+        penHole.fillColor = frame.fillColor;
+
+        var deltaP = penPoint - wafer.position;
+
+        // path
+        var path = new Path();
+        path.add(penPoint);
+
+        function distSquare(p1, p2) {
+            return (p1.x - p2.x) * (p1.x - p2.x) + (p1.y - p2.y) * (p1.y - p2.y);
+        }
+
+        function inside(point, circle) {
+            var center = circle.position;
+            var radius = circle.radius;
+
+            return radius * radius > distSquare(point, center);
+        }
+
+        function calcCenter(angle) {
+            var center = new Point();
+            center.x = (frame.radius - wafer.radius) * Math.sin(angle) + ORIGIN.x;
+            center.y = (frame.radius - wafer.radius) * Math.cos(angle) + ORIGIN.y;
+
+            return center;
+        }
+
+        function calcDirection(point) {
+            var curCenter = wafer.position;
+            var testCenter = calcCenter(newAngle - 0.2);
+
+            var curDist = distSquare(point, curCenter);
+            var testDist = distSquare(point, testCenter);
+
+            var result = testDist - curDist;
+
+            if (Math.abs(result) < 1) 
+                return 0;
+            else
+                return result;
+        }
+
+        function onMouseMove(event) {
+            var barDisabled = document.getElementById("radius").disabled;
+            if(barDisabled) {
+                var pos = event.point;
+
+                if (!inside(pos, wafer) &&
+                    distSquare(pos, frame.position) < 1000 + frame.radius * frame.radius) {
+                    var ret = calcDirection(pos);
+
+                    if (ret != 0)
+                        newAngle += ret < 0 ? -delta : delta;
+                }
+            }
+        }
+
+        function onKeyDown(event) {
+            var barDisabled = document.getElementById("radius").disabled;
+            if(barDisabled) {
+                if(event.key === 'left') {
+                    newAngle -= delta;
+                } else if(event.key === 'right') {
+                    newAngle += delta;
+                }
+            }
+        }
+
+        function onMouseDown(event) {
+            if (inside(event.point, wafer)){
+                penPoint = event.point;
+                deltaP = penPoint - wafer.position;
+                oldAngle = newAngle;
+                path = new Path();
+                path.strokeColor = 'blue';
+                penHole.position = penPoint;
+            }
+        }
+
+        function updateWafer(angle) {
+            var newWaferCenter = calcCenter(angle);
+            wafer.position = newWaferCenter.round();
+
+            var waferAngle = (angle - oldAngle) * frame.radius / wafer.radius;
+
+            penPoint = wafer.position + deltaP;
+            penPoint = penPoint.rotate(waferAngle * 180 / Math.PI, wafer.position);
+            penHole.position = penPoint;
+        }
+
+        function updateWaferRadius(radius) {
+            wafer.position.y = ORIGIN.y + frame.radius - radius;
+            wafer.radius = radius;
+            penPoint = wafer.position;
+            penHole.position = penPoint;
+        }
+
+        function onFrame(event) {
+            var radius = document.getElementById("radius").value;
+            color = $("#flat").spectrum("get").toHexString();
+            penHole.radius = width;
+            if(radius != wafer.radius) {
+                updateWaferRadius(radius);
+                path = new Path();
+            }
+            else if(oldAngle === newAngle) {
+                ;
+            } else if (document.getElementById("switch").value === 'radius') {
+                updateWafer(newAngle);
+                path.strokeColor = color;
+                path.strokeWidth = width;
+                path.add(penPoint);
+                if (path.segments.length > 500) {
+                    path.smooth();
+                    path.simplify();
+                    path = new Path();
+                    path.add(penPoint);
+                }
+            }
+        }
+    </script>
+
+    <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/b/b4/Golden_Retriever_puppy_standing.jpg/1280px-Golden_Retriever_puppy_standing.jpg"
+            id="img" style="display: none;"/>
+
 </head>
 
 <body>
     <canvas id="canvas" width="800" height="600"></canvas>
 
-    <script src="goose.js"></script>
+    <input type='text' id="flat" />
+
+    <br />
+
+    Wafer size &nbsp; <input id="radius" type="range" min="20" max="150" step="1" value="50" disabled="true"/>
+
+    <br />
+
+    Stroke width &nbsp; <input id="width" type="range" min="1" max="5" step="1" value="2" disabled="true" />
+
+    <br /> <br />
+
+    <button id="switch" onClick="switchMode()" value="radius">Change Wafer Size</button>
+
+    <script>
+        function switchMode() {
+            var button = document.getElementById("switch");
+            var radius = document.getElementById("radius");
+            var width = document.getElementById("width");
+
+            if (button.value === 'draw') {
+                button.value = 'radius';
+                button.innerHTML = 'Change';
+                radius.disabled = true;
+                width.disabled = true;
+
+            } else {
+                button.value = 'draw';
+                button.innerHTML = 'Draw Something!';
+                radius.disabled = false;
+                width.disabled = false;
+            }
+        }
+
+        $("#flat").spectrum({
+                color: "#f00",
+                flat: true,
+        });
+    </script>
 </body> 
 </html>
